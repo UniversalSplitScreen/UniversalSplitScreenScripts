@@ -33,8 +33,9 @@ catch {
 try {
     # Search through Epic Launcher logs to find the launch parameters for Borderlands 3. Might have to wait until Epic copy has launched before it can start
     Write-Host Finding offline launch arguments
-    while ($Launch_Info -eq $null) {
+    while (($Launch_Info -eq $null) -and ($bl3_processes -eq $null)) {
         sleep 1
+        $bl3_processes = Get-Process borderlands3 -ErrorAction SilentlyContinue
         $Launch_Info = Get-Content $env:USERPROFILE\AppData\Local\EpicGamesLauncher\Saved\Logs\EpicGamesLauncher.log | `
                        Where-Object {$_ -like '*Borderlands3.exe*'} | `
                        Select-Object -First 1
