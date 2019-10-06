@@ -37,7 +37,7 @@ try {
         sleep 1
         $bl3_processes = Get-Process borderlands3 -ErrorAction SilentlyContinue
         $Launch_Info = Get-Content $env:USERPROFILE\AppData\Local\EpicGamesLauncher\Saved\Logs\EpicGamesLauncher.log | `
-                       Where-Object {$_ -like '*Borderlands3.exe*'} | `
+                       Where-Object {$_ -like '*FCommunityPortalLaunchAppTask: Launching app*Borderlands3.exe*'} | `
                        Select-Object -First 1
     }
 
