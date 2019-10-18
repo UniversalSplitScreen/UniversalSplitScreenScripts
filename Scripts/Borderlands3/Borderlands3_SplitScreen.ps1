@@ -2,7 +2,7 @@
 $USS_Path = 'C:/Universal Split Screen 1.1.1/UniversalSplitScreen.exe'     # Universal Split Screen install path. Download from https://universalsplitscreen.github.io/
 $proc_aff_enabled = $true                                                  # Assigns half the CPU cores to one window, and half to the other. Can disable (set to $false) if you have a powerful CPU
 $reposition_windows_enabled = $true                                        # Repositions the windows in a split screen configuration. Set to $false to disable
-$vert_split = $true                                                        # Set to $true for vertical split. $false is horizontal 
+$vert_split = $false                                                       # Set to $true for vertical split. $false is horizontal 
 $FullscreenMode = 2                                                        # Set to 2 for splitscreen, or 1 for dual monitor
 $config_ini_path = [environment]::getfolderpath("mydocuments") + "\My Games\Borderlands 3\Saved\Config\WindowsNoEditor\GameUserSettings.ini"
 
@@ -14,14 +14,21 @@ if ($reposition_windows_enabled) {
         $null = Select-Window -ErrorAction Stop
     }
     catch { 
-        Write-Warning "Looks like the WASP module is not currently installed! The WASP module is used for repositioning the windows" 
-        Write-Error "Please install WASP or disable window repositioning" -ErrorAction Stop
+        Write-Warning "Looks like the WASP module is not currently installed! The WASP module is used for repositioning the windows. Disabling window positioning" 
+        $reposition_windows_enabled = $false
     }
 }
 
 # Edit the game settings to change window mode
-$monitors = Get-PnpDevice | where-object {($_.class -eq "Monitor") -and ($_.status -eq 'OK')}
-$monitors = $monitors.instanceid | foreach-object {$_.substring(8,7)}
+try { 
+    $monitors = Get-PnpDevice | where-object {($_.class -eq "Monitor") -and ($_.status -eq 'OK')}
+    $monitors = $monitors.instanceid | foreach-object {$_.substring(8,7)}
+}
+catch {
+    $monitors = Get-WmiObject win32_pnpentity -Filter "DeviceID LIKE 'Display%'" | Select-Object DeviceID
+    $monitors = $monitors.deviceid | foreach-object {$_.substring(8,7)}
+}
+
 $monitors_names = [System.Windows.Forms.Screen]::AllScreens.DeviceName
 
 try {
@@ -160,7 +167,7 @@ if (($reposition_windows_enabled -eq $true) -and ($FullscreenMode -eq 2)) {
             }
             $i++
         }
-        sleep -s 1
+        sleep -m 100
         $bl3_windows = Select-Window borderlands3
         if ([console]::KeyAvailable) {
             $key = [system.console]::readkey($true)
