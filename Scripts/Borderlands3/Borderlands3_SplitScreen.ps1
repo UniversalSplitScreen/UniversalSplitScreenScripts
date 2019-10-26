@@ -1,20 +1,21 @@
 ﻿# Variables
 $USS_Path = 'C:/Universal Split Screen 1.1.1/UniversalSplitScreen.exe'     # Universal Split Screen install path. Download from https://universalsplitscreen.github.io/
+$Sandboxie_Path = 'C:\Program Files\Sandboxie\Start.exe'                   # Sandboxie path. Download from https://www.sandboxie.com/DownloadSandboxie
 $proc_aff_enabled = $true                                                  # Assigns half the CPU cores to one window, and half to the other. Can disable (set to $false) if you have a powerful CPU
 $reposition_windows_enabled = $true                                        # Repositions the windows in a split screen configuration. Set to $false to disable
-$vert_split = $false                                                       # Set to $true for vertical split. $false is horizontal 
-$FullscreenMode = 2                                                        # Set to 2 for splitscreen, or 1 for dual monitor
+$split_mode = "horizontal"                                                 # "horizontal", "vertical" or "dual" (dual monitor - UNTESTED)
 $config_ini_path = [environment]::getfolderpath("mydocuments") + "\My Games\Borderlands 3\Saved\Config\WindowsNoEditor\GameUserSettings.ini"
 
 Add-Type -AssemblyName System.Windows.Forms
 
 # Check if WASP is installed
-if ($reposition_windows_enabled) {
+if ($reposition_windows_enabled -and ($split_mode -ne "dual")) {
     try {
         $null = Select-Window -ErrorAction Stop
     }
     catch { 
-        Write-Warning "Looks like the WASP module is not currently installed! The WASP module is used for repositioning the windows. Disabling window positioning" 
+        Write-Warning "Looks like the WASP module is not currently installed so cannot reposition the windows for splitscreen! Disabling window repositioning"
+        Write-Host "Make sure WASP.dll is installed in $([environment]::getfolderpath("mydocuments") + "\WindowsPowershell\Modules\WASP\WASP.dll")"
         $reposition_windows_enabled = $false
     }
 }
@@ -34,23 +35,23 @@ $monitors_names = [System.Windows.Forms.Screen]::AllScreens.DeviceName
 try {
     Write-Host Changing window mode
     $config_ini = Get-Content $config_ini_path
-    if (($monitors.count -gt 1) -and ($FullscreenMode -eq 1)) {
+    if (($monitors.count -gt 1) -and ($split_mode -eq "dual")) {
         Write-Host Setting up monitor $monitors[0]
         $line = $config_ini | Select-String PreferredMonitor=
         $config_ini = $config_ini | ForEach-Object {$_ -replace $line[0],"PreferredMonitor=$($monitors[0])"}
         $line = $config_ini | Select-String PreferredMonitorDeviceName=
         $config_ini = $config_ini | ForEach-Object {$_ -replace $line[0],"PreferredMonitorDeviceName=$($monitors_names[0])"}
-    } elseif ($FullscreenMode -eq 1) {
+    } elseif ($split_mode -eq "dual") {
         Write-Error "Unable to get monitor information for all monitors" -Category InvalidResult -ErrorAction Stop 
     }
     $line = $config_ini | Select-String FullscreenMode=
-    $config_ini = $config_ini | ForEach-Object {$_ -replace $line[0],"FullscreenMode=$($FullscreenMode)"} | Out-File $config_ini_path
+    $config_ini = $config_ini | ForEach-Object {$_ -replace $line[0],"FullscreenMode=1"} | Out-File $config_ini_path
 }
 catch [Microsoft.PowerShell.Commands.WriteErrorException] {
     Write-Error "Unable to get monitor information for all monitors" -ErrorAction Stop
 }
 catch {
-    Write-Warning "Unable to set resolution and windowed mode in GameUserSettings.ini"
+    Write-Warning "Unable to set resolution and window mode in GameUserSettings.ini"
 }
 
 # Start an instance of Borderlands 3 using the Epic Launcher
@@ -86,7 +87,7 @@ try {
     Write-Host Found Borderlands 3 in $bl3_bin
 
     # Update config for second monitor
-    if ($FullscreenMode -eq 1) {
+    if ($split_mode -eq "dual") {
         try {
             Write-Host Setting up monitor $monitors[1]
             $config_ini = Get-Content $config_ini_path 
@@ -102,8 +103,10 @@ try {
         }
     }
 
-    Write-Host Starting offline instance of Borderlands 3
-    Start-Process -FilePath $bl3_bin -ArgumentList $bl3_arg
+    Write-Host Starting offline instance of Borderlands 3 in Sandboxie
+    $null = Test-Path -Path $Sandboxie_Path -ErrorAction stop
+    Start-Process -FilePath $Sandboxie_Path -ArgumentList ("/box:BL3 " + $bl3_bin + $bl3_arg)
+    #Start-Process -FilePath $bl3_bin -ArgumentList $bl3_arg
 }
 catch {
     Write-Error "Unable to launch offline copy of Borderlands 3. Quitting..." -ErrorAction Stop
@@ -138,26 +141,26 @@ if ($proc_aff_enabled) {
 }
 
 # Positioning windows
-if (($reposition_windows_enabled -eq $true) -and ($FullscreenMode -eq 2)) {
+if (($reposition_windows_enabled -eq $true) -and (($split_mode -eq "vertical") -or ($split_mode -eq "horizontal"))) {
     while ($bl3_windows.count -lt 2) {
         sleep -s 1
         $bl3_windows = Select-Window borderlands3
     }
-    Write-Host Repositioning windows. Switch to Universal Split Screen to setup the input devices and hide window borders
+    Write-Host Repositioning windows. Switch to Universal Split Screen to setup the input devices
     Write-Host Press s to swap position of the windows. Press d to toggle between vertical and horizontal split
     $invert = $false
     while ($bl3_windows.count -eq 2) {
         $i = 0
         foreach ($window in $bl3_windows) {
-            if ($vert_split) {
-                $x_res = ([System.Windows.Forms.Screen]::AllScreens.Bounds.Width) / 2
-                $y_res = [System.Windows.Forms.Screen]::AllScreens.Bounds.Height
+            if ($split_mode -eq "vertical") {
+                $x_res = (([System.Windows.Forms.Screen]::AllScreens.Bounds.Width) / 2) + 1
+                $y_res = ([System.Windows.Forms.Screen]::AllScreens.Bounds.Height) + 1
                 $x_pos = ($i*$x_res)-1
                 $y_pos = -1
             
             } else {
-                $x_res = [System.Windows.Forms.Screen]::AllScreens.Bounds.Width
-                $y_res = ([System.Windows.Forms.Screen]::AllScreens.Bounds.Height) / 2
+                $x_res = ([System.Windows.Forms.Screen]::AllScreens.Bounds.Width) + 1
+                $y_res = (([System.Windows.Forms.Screen]::AllScreens.Bounds.Height) / 2) + 2
                 $x_pos = -1
                 $y_pos = ($i*$y_res)-1
             }
@@ -172,7 +175,10 @@ if (($reposition_windows_enabled -eq $true) -and ($FullscreenMode -eq 2)) {
         if ([console]::KeyAvailable) {
             $key = [system.console]::readkey($true)
             if ($key.key -eq "s") {$invert = !$invert; Write-Host Swapping windows }
-            elseif ($key.key -eq "d") {$vert_split = !$vert_split; Write-Host Changing orientation }
+            elseif ($key.key -eq "d") {
+                if ($split_mode -eq "horizontal") {$split_mode = "vertical"; Write-Host Changing to vertical split}
+                elseif ($split_mode -eq "vertical") {$split_mode = "horizontal"; Write-Host Changing to horizontal split}
+                }
         }
         if ($invert) {$null = [array]::Reverse($bl3_windows) }
     }
