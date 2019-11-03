@@ -126,7 +126,7 @@ catch {
 if ($proc_aff_enabled) {
     while ($bl3_processes.count -lt 2) { 
         sleep -s 1 
-        $bl3_processes = Get-Process borderlands3 | Sort-Object pm | Select-Object -last 2
+        $bl3_processes = Get-Process *borderlands3* | Sort-Object pm | Select-Object -last 2
     }
     Write-Host Setting processor affinity and priority
     
