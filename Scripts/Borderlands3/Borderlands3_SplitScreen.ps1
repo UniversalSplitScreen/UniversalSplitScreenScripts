@@ -1,6 +1,13 @@
-﻿# Variables
+﻿# Using Epic launcher?
+$Player1 = $true                                                           # Set to $true if launching from Epic games and $false if launching from steam
+$Player2 = $false                                                          # If both are $true (Epic) then player 2 will be offline and cannot play DLC content. 
+                                                                           # NOTE: SCRIPT DOES NOT YET WORK FOR 2 STEAM PLAYERS!
+
+#Variables
 $USS_Path = 'C:/Universal Split Screen 1.1.1/UniversalSplitScreen.exe'     # Universal Split Screen install path. Download from https://universalsplitscreen.github.io/
 $Sandboxie_Path = 'C:\Program Files\Sandboxie\Start.exe'                   # Sandboxie path. Download from https://www.sandboxie.com/DownloadSandboxie
+
+$sandboxie = $false                                                        # Set to '$true' if you want to run the offline instance in Sandboxie
 $proc_aff_enabled = $true                                                  # Assigns half the CPU cores to one window, and half to the other. Can disable (set to $false) if you have a powerful CPU
 $reposition_windows_enabled = $true                                        # Repositions the windows in a split screen configuration. Set to $false to disable
 $split_mode = "horizontal"                                                 # "horizontal", "vertical" or "dual" (dual monitor - UNTESTED)
@@ -20,18 +27,21 @@ if ($reposition_windows_enabled -and ($split_mode -ne "dual")) {
     }
 }
 
+# Find monitors for dual screen mode
+if ($split_mode -eq "dual") {
+    try { 
+        $monitors = Get-PnpDevice | where-object {($_.class -eq "Monitor") -and ($_.status -eq 'OK')}
+        $monitors = $monitors.instanceid | foreach-object {$_.substring(8,7)}
+    }
+    catch {
+        $monitors = Get-WmiObject win32_pnpentity -Filter "DeviceID LIKE 'Display%'" | Select-Object DeviceID
+        $monitors = $monitors.deviceid | foreach-object {$_.substring(8,7)}
+    }
+
+    $monitors_names = [System.Windows.Forms.Screen]::AllScreens.DeviceName
+}
+
 # Edit the game settings to change window mode
-try { 
-    $monitors = Get-PnpDevice | where-object {($_.class -eq "Monitor") -and ($_.status -eq 'OK')}
-    $monitors = $monitors.instanceid | foreach-object {$_.substring(8,7)}
-}
-catch {
-    $monitors = Get-WmiObject win32_pnpentity -Filter "DeviceID LIKE 'Display%'" | Select-Object DeviceID
-    $monitors = $monitors.deviceid | foreach-object {$_.substring(8,7)}
-}
-
-$monitors_names = [System.Windows.Forms.Screen]::AllScreens.DeviceName
-
 try {
     Write-Host Changing window mode
     $config_ini = Get-Content $config_ini_path
@@ -54,62 +64,96 @@ catch {
     Write-Warning "Unable to set resolution and window mode in GameUserSettings.ini"
 }
 
-# Start an instance of Borderlands 3 using the Epic Launcher
-try {
-    Write-Host Starting Borderlands 3 using Epic Launcher
-    Start-Process -FilePath "com.epicgames.launcher://apps/Catnip?action=launch&silent=true"
-}
-catch {
-    Write-Error "Unable to launch Borderlands 3 using Epic Launcher. Quitting..." -ErrorAction Stop
-}
-
-# Launch an offline instance of Borderlands 3
-try {
-    # Search through Epic Launcher logs to find the launch parameters for Borderlands 3.Wait until Epic copy has launched before it can start
-    Write-Host Finding offline launch arguments
-    while (($Launch_Info -eq $null) -or ($bl3_windows -eq $null)) {
-        sleep -s 1
-        # $bl3_processes = Get-Process borderlands3 -ErrorAction SilentlyContinue
-        $bl3_windows = Select-Window borderlands3 
-        $Launch_Info = Get-Content $env:USERPROFILE\AppData\Local\EpicGamesLauncher\Saved\Logs\EpicGamesLauncher.log | `
-                       Where-Object {$_ -like '*FCommunityPortalLaunchAppTask: Launching app*Borderlands3.exe*'} | `
-                       Select-Object -First 1
+# Start first instance of Borderlands 3
+if (!$Player1 -and !$Player2) {
+    Write-Error "Launching two Steam sessions is not yet supported. Quitting... " -ErrorAction Stop
+} elseif ($Player1 -or $Player2) {    
+    # At least one player using Epic, so launch an Epic session
+    try {
+        Write-Host Starting Borderlands 3 using Epic Launcher
+        Start-Process -FilePath "com.epicgames.launcher://apps/Catnip?action=launch&silent=true"
     }
+    catch {
+        Write-Error "Unable to launch Borderlands 3 using Epic Launcher. Quitting..." -ErrorAction Stop
+    }
+} 
+if (!$Player1 -xor !$Player2) {    
+    # At least one player is using Steam, so launch a steam session
+    try {
+        Write-Host Starting Borderlands 3 using Steam
+        $steam_bin = Get-ChildItem HKLM:\SOFTWARE\wow6432node\Microsoft\Windows\CurrentVersion\Uninstall | ` # Finding the Steam install path
+            % { Get-ItemProperty $_.PsPath } | `
+            Where-Object {$_.DisplayName -eq 'Steam'} | `
+            ft UninstallString -HideTableHeaders | Out-String | `
+            ForEach-Object {$_ -replace "uninstall", "Steam"}
+        
+        $steam_bin = $steam_bin -replace "`n","" -replace "`r",""
 
-    # Reformat it, split out the arguments, and point to the actual binary
-    $null, $bl3_bin = $Launch_Info -split "Launching app "
-    $bl3_bin = $bl3_bin -replace "'",""
-    $bl3_bin, $bl3_arg = $bl3_bin -split "with commandline "
-    $bl3_bin = $bl3_bin -replace "Borderlands3.exe","OakGame/Binaries/Win64/Borderlands3.exe"
+        $null = Test-Path -Path $steam_bin -ErrorAction Stop
+        Start-Process -FilePath $steam_bin -ArgumentList ("-applaunch 397540" )
+    }
+    catch {
+        Write-Error "Unable to launch Borderlands 3 using Steam. Quitting..." -ErrorAction Stop
+    }
+}
 
-    # Make sure it exists
-    $null = Test-Path -Path $bl3_bin -ErrorAction stop
-    Write-Host Found Borderlands 3 in $bl3_bin
-
-    # Update config for second monitor
-    if ($split_mode -eq "dual") {
-        try {
-            Write-Host Setting up monitor $monitors[1]
-            $config_ini = Get-Content $config_ini_path 
-            $line = $config_ini | Select-String PreferredMonitor=
-            $config_ini = $config_ini | ForEach-Object {$_ -replace $line[0],"PreferredMonitor=$($monitors[1])"}
-            $line = $config_ini | Select-String PreferredMonitorDeviceName=
-            $config_ini = $config_ini | ForEach-Object {$_ -replace $line[0],"PreferredMonitorDeviceName=$($monitors_names[1])"} 
-            $line = $config_ini | Select-String bPrimaryIsPreferredMonitor=
-            $config_ini = $config_ini | ForEach-Object {$_ -replace $line[0],"bPrimaryIsPreferredMonitor=False"} | Out-File $config_ini_path
+# Start second instance of Borderlands 3
+if ($Player1 -and $Player2) {
+    # Start offline copy of Borderlands 3 through Epic
+    try {
+        # Search through Epic Launcher logs to find the launch parameters for Borderlands 3.Wait until Epic copy has launched before it can start
+        Write-Host Finding offline launch arguments
+        while (($Launch_Info -eq $null) -or ($bl3_windows -eq $null)) {
+            sleep -s 1
+            # $bl3_processes = Get-Process borderlands3 -ErrorAction SilentlyContinue
+            $bl3_windows = Select-Window borderlands3 
+            $Launch_Info = Get-Content $env:USERPROFILE\AppData\Local\EpicGamesLauncher\Saved\Logs\EpicGamesLauncher.log | `
+                           Where-Object {$_ -like '*FCommunityPortalLaunchAppTask: Launching app*Borderlands3.exe*'} | `
+                           Select-Object -First 1
         }
-        catch {
-            Write-Warning "Unable update GameUserSettings.ini"
+
+        # Reformat it, split out the arguments, and point to the actual binary
+        $null, $bl3_bin = $Launch_Info -split "Launching app "
+        $bl3_bin = $bl3_bin -replace "'",""
+        $bl3_bin, $bl3_arg = $bl3_bin -split "with commandline "
+        $bl3_bin = $bl3_bin -replace "Borderlands3.exe","OakGame/Binaries/Win64/Borderlands3.exe"
+
+        # Make sure it exists
+        $null = Test-Path -Path $bl3_bin -ErrorAction Stop
+        Write-Host Found Borderlands 3 in $bl3_bin
+
+        # Update config for second monitor
+        if ($split_mode -eq "dual") {
+            try {
+                Write-Host Setting up monitor $monitors[1]
+                $config_ini = Get-Content $config_ini_path 
+                $line = $config_ini | Select-String PreferredMonitor=
+                $config_ini = $config_ini | ForEach-Object {$_ -replace $line[0],"PreferredMonitor=$($monitors[1])"}
+                $line = $config_ini | Select-String PreferredMonitorDeviceName=
+                $config_ini = $config_ini | ForEach-Object {$_ -replace $line[0],"PreferredMonitorDeviceName=$($monitors_names[1])"} 
+                $line = $config_ini | Select-String bPrimaryIsPreferredMonitor=
+                $config_ini = $config_ini | ForEach-Object {$_ -replace $line[0],"bPrimaryIsPreferredMonitor=False"} | Out-File $config_ini_path
+            }
+            catch {
+                Write-Warning "Unable update GameUserSettings.ini"
+            }
+        }
+
+        Write-Host Starting offline instance of Borderlands 3
+        if ($sandboxie) {
+            $null = Test-Path -Path $Sandboxie_Path -ErrorAction stop
+            Start-Process -FilePath $Sandboxie_Path -ArgumentList ("/box:BL3 " + $bl3_bin + $bl3_arg)
+        } else {
+            $null = Test-Path -Path $bl3_bin -ErrorAction Stop
+            Start-Process -FilePath $bl3_bin -ArgumentList $bl3_arg
         }
     }
-
-    Write-Host Starting offline instance of Borderlands 3 in Sandboxie
-    $null = Test-Path -Path $Sandboxie_Path -ErrorAction stop
-    Start-Process -FilePath $Sandboxie_Path -ArgumentList ("/box:BL3 " + $bl3_bin + $bl3_arg)
-    #Start-Process -FilePath $bl3_bin -ArgumentList $bl3_arg
-}
-catch {
-    Write-Error "Unable to launch offline copy of Borderlands 3. Quitting..." -ErrorAction Stop
+    #catch [Microsoft.PowerShell.Commands.WriteErrorException] {
+    #    Write-Warning "Check $bl3_bin exists. $Launch_Info"
+    #}
+    catch {
+        Write-Error "Unable to launch offline copy of Borderlands 3. Quitting..." -ErrorAction Stop
+    }
 }
 
 # Start Universal SplitScreen
